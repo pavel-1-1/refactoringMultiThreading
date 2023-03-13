@@ -11,11 +11,11 @@ import java.util.concurrent.Executors;
 public class Server {
     private final static List<String> methods = List.of("GET", "POST");
     private ServerSocket serverSocket;
-    private final Request request;
+    //private final Request request;
     private final ExecutorService treadPul = Executors.newFixedThreadPool(64);
 
     public Server(int port) {
-        request = new Request();
+        //request = new Request();
         try {
             serverSocket = new ServerSocket(port);
         } catch (IOException e) {
@@ -35,6 +35,7 @@ public class Server {
     }
 
     public Runnable connection(Socket socket) {
+        Request request = new Request();
         return () -> {
             try (BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
                  BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {

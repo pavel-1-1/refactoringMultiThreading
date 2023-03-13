@@ -15,6 +15,7 @@ import java.util.*;
 
 public class Request {
     private static final List<String> validPaths = new ArrayList<>();
+    private List<NameValuePair> params;
 
     protected Request() {
         File dir = new File("public");
@@ -26,17 +27,14 @@ public class Request {
         // парсим Query параметры если таковые есть
         try {
             if (path.indexOf('?') != -1) {
-                List<NameValuePair> params = URLEncodedUtils.parse(new URI(path), "UTF-8");
-                Map<String, String> map = new HashMap<>();
-                for (NameValuePair param : params) {
-                    if (param.getValue().isEmpty()) {
-                        outPathHtml(out, "formGet.html");
-                        return;
-                    }
-                    map.put(param.getName(), param.getValue());
+                params = URLEncodedUtils.parse(new URI(path), "UTF-8");
+
+                if (getQueryParams().isEmpty()) {
+                    outPathHtml(out, "formGet.html");
                 }
+
                 try {
-                    FormReg form = new FormReg(map.get("name"), Integer.parseInt(map.get("age")), map.get("sex"));
+                    FormReg form = new FormReg(getQueryParam("name"), Integer.parseInt(getQueryParam("age")), getQueryParam("sex"));
                     System.out.println(form);
                 } catch (NumberFormatException e) {
                     outPathHtml(out, "formGet.html");
@@ -117,6 +115,21 @@ public class Request {
             e.printStackTrace();
         }
 
+    }
+
+    private List<NameValuePair> getQueryParams() {
+        return params;
+    }
+
+    private String getQueryParam(String name) {
+        String value = null;
+        for (NameValuePair param : params) {
+            if (param.getName().equals(name)) {
+                value = param.getValue();
+                break;
+            }
+        }
+        return value;
     }
 
     private void outPathHtml(BufferedOutputStream out, String path) {
