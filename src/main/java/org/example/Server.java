@@ -3,21 +3,19 @@ package org.example;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Server {
-    private static final List<String> validPaths = new ArrayList<>();
+    private final static List<String> methods = List.of("GET", "POST");
     private ServerSocket serverSocket;
+    //private final Request request;
     private final ExecutorService treadPul = Executors.newFixedThreadPool(64);
 
     public Server(int port) {
-        File dir = new File("public");
-        path(dir);
+        //request = new Request();
         try {
             serverSocket = new ServerSocket(port);
         } catch (IOException e) {
@@ -37,57 +35,100 @@ public class Server {
     }
 
     public Runnable connection(Socket socket) {
+        Request request = new Request();
         return () -> {
-            try (BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            try (BufferedInputStream in = new BufferedInputStream(socket.getInputStream());
                  BufferedOutputStream out = new BufferedOutputStream(socket.getOutputStream())) {
-                final String requestLine = in.readLine();
-                final String[] parts = requestLine.split(" ");
-                System.out.println(requestLine);
 
-                if (parts.length != 3) {
+                int limit = 4096;
+                in.mark(limit);
+
+                byte[] buffer = new byte[limit];
+                int read = in.read(buffer);
+
+                byte[] requestLineDelimiter = new byte[]{'\r', '\n'};
+                int requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
+                if (requestLineEnd == -1) {
+                    badRequest(out);
                     socket.close();
                     return;
                 }
 
-                final String path = parts[1];
-                if (!validPaths.contains(path)) {
-                    out.write(("""
-                            HTTP/1.1 404 Not Found\r
-                            Content-Length: 0\r
-                            Connection: close\r
-                            \r
-                            """).getBytes());
-                    out.flush();
+                String[] requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
+                System.out.println(Arrays.toString(requestLine));
+                System.out.println();
+                if (requestLine.length != 3) {
+                    badRequest(out);
+                    socket.close();
                     return;
                 }
 
-                final Path filePath = Path.of(".", "public", path);
-                System.out.println(filePath);
-                final String mimeType = Files.probeContentType(filePath);
-                final long length = Files.size(filePath);
+                if (!methods.contains(requestLine[0])) {
+                    badRequest(out);
+                    socket.close();
+                    return;
+                }
+                System.out.println(requestLine[0]);
 
-                out.write(("HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + length + "\r\n" +
-                        "Connection: close\r\n" +
-                        "\r\n").getBytes());
-                Files.copy(filePath, out);
-                out.flush();
+                String path = requestLine[1].trim();
+                System.out.println(path);
+                if (!path.startsWith("/")) {
+                    badRequest(out);
+                    socket.close();
+                    return;
+                }
+                System.out.println(path);
+
+                byte[] headerDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
+                int headersStart = requestLineEnd + requestLineDelimiter.length;
+                int headersEnd = indexOf(buffer, headerDelimiter, headersStart, read);
+                if (headersEnd == -1) {
+                    badRequest(out);
+                    System.out.println("err");
+                    socket.close();
+                    return;
+                }
+
+                in.reset();
+                in.skip(headersStart);
+                byte[] headersByte = in.readNBytes(headersEnd - headersStart);
+                String[] headers = new String(headersByte).split("\r\n");
+
+                switch (requestLine[0].trim()) {
+                    case "GET" -> request.Get(out, path, headers);
+                    case "POST" -> request.Post(out, in, path, headers);
+                    default -> {
+                        badRequest(out);
+                        return;
+                    }
+                }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         };
     }
 
-    private void path(File dir) {
-        if (dir.isDirectory()) {
-            for (File file : dir.listFiles()) {
-                if (file.isDirectory()) {
-                    path(file);
-                } else {
-                    validPaths.add(file.getPath().substring(file.getPath().indexOf("\\")).replace("\\", "/"));
+    private int indexOf(byte[] array, byte[] separator, int start, int max) {
+        outer:
+        for (int i = start; i < max - separator.length + 1; i++) {
+            for (int j = 0; j < separator.length; j++) {
+                if (array[i + j] != separator[j]) {
+                    continue outer;
                 }
             }
+            return i;
         }
+        return -1;
+    }
+
+    protected void badRequest(BufferedOutputStream out) throws IOException {
+        out.write("""
+                HTTP/1.1 400 Bad Request
+                Content-Length: 0
+                Connection: close
+                                
+                                
+                """.getBytes());
+        out.flush();
     }
 }
